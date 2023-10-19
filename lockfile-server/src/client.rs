@@ -1,59 +1,73 @@
 use std::{
     error::Error,
-    fs::{self, File},
-    io::Write,
-    process::{exit, Command},
+    fs::File,
+    io::{Read, Write},
+    process::exit,
     sync::Arc,
     thread::sleep,
     time::Duration,
 };
 
+use lockfile_server::*;
 use uuid::Uuid;
 
-// Checks if function exists
-fn lockfile_exists() -> Result<(), ()> {
-    let dir_contents = fs::read_dir("server");
+fn handle_connection(file: &mut File, file_path: &str) -> Result<(), Box<dyn Error>> {
+    // Create lockfile to lock connection
+    File::create("server/lockfile")?;
+    // Create new buffer for user input
+    let mut buffer = String::new();
+    // Open server buffer in write only mode
+    let mut server_buffer_file = File::create("server/buffer")?;
+    // Write client file path to server buffer at first line
+    let _ = server_buffer_file.write(format!("{}\n", file_path).as_bytes())?;
 
-    match dir_contents {
-        Ok(entries) => {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    if let Some(file_name) = entry.file_name().to_str() {
-                        if file_name == "lockfile" {
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-            Err(())
+    // Display prompt and read user input
+    print!("> ");
+    std::io::stdout().flush()?;
+    std::io::stdin().read_line(&mut buffer)?;
+    let byte_count = server_buffer_file.write(buffer.as_bytes())?;
+
+    println!("Written {} bytes to server buffer", byte_count);
+
+    // Await server response to client file
+    println!("Awaiting server response...");
+    loop {
+        let timestamp = get_file_timestamp(file_path)?;
+
+        // Checks if timestamp of the file changes: if file gets written
+        if get_file_timestamp(file_path)? != timestamp {
+            // Create response buffer and read
+            // client file content written by server into it
+            let mut response_buff = String::new();
+            File::open(file_path)?.read_to_string(&mut response_buff)?;
+
+            println!("Server response: {}", response_buff);
+
+            break;
         }
-        Err(_) => Err(()),
     }
-}
 
-// Spawns independent process that cleans up client file
-// Executes regardless of main thread
-fn cleanup(id: &str) {
-    Command::new("sh")
-        .arg("-c")
-        .arg(format!("sleep 3 && rm client/{}", id)) // Sleep for 0.5s and then remove the file
-        .spawn()
-        .expect("Failed to start child process");
+    // Spawn process to clean up client file after operation
+    cleanup(file_path);
+
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Check for lockfile
     // 'Connection id' is also file name
     let conn_id = Uuid::new_v4().to_string();
-    let id_arc = Arc::new(conn_id.clone());
+    // Client file path
+    let file_path = format!("client/{}", conn_id);
+    let file_path_arc = Arc::new(file_path.clone());
 
     // Create client file
-    let mut file = File::create(format!("client/{}", &conn_id))?;
+    let mut file = File::create(&file_path)?;
 
     // Set Ctrl+C handler for cleaning up client files on exit
     ctrlc::set_handler(move || {
-        let id = Arc::clone(&id_arc);
-        cleanup(id.as_str());
+        let path = Arc::clone(&file_path_arc);
+        cleanup(&path);
         exit(130);
     })?;
 
@@ -64,23 +78,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 sleep(Duration::from_secs(2));
                 println!("Server is busy...");
             }
-            Err(_) => {
-                // Create new buffer for user input
-                let mut buffer = String::new();
-
-                // Display prompt and read user input
-                print!("> ");
-                std::io::stdout().flush()?;
-                std::io::stdin().read_line(&mut buffer)?;
-                let byte_count = file.write(buffer.as_bytes())?;
-
-                println!("Written {} bytes to #{}", byte_count, conn_id);
-
-                // Spawn process to clean up client file after operation
-                cleanup(&conn_id);
-
-                return Ok(());
-            }
+            Err(_) => return handle_connection(&mut file, &file_path),
         }
     }
 }

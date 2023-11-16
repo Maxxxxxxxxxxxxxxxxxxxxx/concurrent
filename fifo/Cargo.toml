@@ -1,0 +1,21 @@
+[package]
+name = "fifo"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "server"
+path = "src/server.rs"
+
+[[bin]]
+name = "client"
+path = "src/client.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ctrlc = "3.4.1"
+env_logger = "0.10.1"
+log = "0.4.20"
+nix = { version = "0.27.1", features = ["fs"] }
+uuid = { version = "1.5.0", features = ["v4"] }

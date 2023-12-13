@@ -68,6 +68,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             if let Some(res) = person {
                 write_response(&client_queue_path, res)?;
             } else {
+                log::warn!("Record with id [{}] not found", &query.content);
                 write_response(&client_queue_path, "Nie ma")?;
             }
         } else {

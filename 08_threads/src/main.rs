@@ -13,19 +13,24 @@ type UIntType = u64;
 const NUMBERS_VALUE: usize = 900000000;
 const MAX_VAL: UIntType = 255;
 
+/// Main function
 fn sum_threaded(num_threads: usize) -> UIntType {
     let mut rng = rand::thread_rng();
     let chunk_size = (NUMBERS_VALUE + num_threads - 1) / num_threads;
     let mut sum = Arc::new(Mutex::new(UIntType::default()));
+
+    // Could use array instead of vec, but NUMBERS_VALUE gets too big for stack alloc
     let mut numbers = Vec::new();
     numbers.resize_with(NUMBERS_VALUE, || rng.gen_range(0..MAX_VAL));
 
     let time_start = SystemTime::now();
 
+    // Break up vec into chunks and initialize threads
     for ch in numbers.chunks(chunk_size) {
         let ch = ch.to_vec();
         let sum_clone = Arc::clone(&sum);
 
+        // Thread init
         thread::spawn(move || {
             let s: UIntType = ch.iter().cloned().sum();
             *sum_clone.lock().unwrap() += s;
